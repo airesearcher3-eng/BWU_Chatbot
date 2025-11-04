@@ -23,3 +23,6 @@ myvenv/Scripts/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+
+URI - 641700582925.dkr.ecr.us-east-1.amazonaws.com/bwu-chatbot
