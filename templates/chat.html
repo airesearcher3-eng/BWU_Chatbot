@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brainware University Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <div class="university-branding">
+                <img src="{{ url_for('static', filename='BWU1.png') }}" alt="Brainware University Logo" class="university-logo">
+                <h1>Brainware University Assistant</h1>
+            </div>
+            <p class="header-text">Ask me anything about admissions, courses, fees, and campus life!</p>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            <div class="message bot-message">
+                <div class="message-content">
+                    <p>👋 Hello! I'm your Brainware University Assistant. How can I help you today?</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-input-container">
+            <form id="chat-form" class="chat-form">
+                <textarea 
+                    id="user-input" 
+                    placeholder="Type your question here... (e.g., What are the BTech courses offered?)"
+                    rows="1"
+                    required
+                ></textarea>
+                <button type="submit" class="send-button">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </form>
+            <div class="suggested-questions">
+                <p>Suggested Questions:</p>
+                <div class="question-chips">
+                    <button class="question-chip">BTech admission process</button>
+                    <button class="question-chip">Course fees structure</button>
+                    <button class="question-chip">Available scholarships</button>
+                    <button class="question-chip">Campus facilities</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('chat-form');
+            const input = document.getElementById('user-input');
+            const messagesContainer = document.getElementById('chat-messages');
+            const questionChips = document.querySelectorAll('.question-chip');
+
+            // Auto-resize textarea as user types
+            input.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight) + 'px';
+            });
+
+            // Handle form submission
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const message = input.value.trim();
+                if (message) {
+                    addMessage('user', message);
+                    // Reset input
+                    input.value = '';
+                    input.style.height = 'auto';
+                    // Simulate bot response
+                    setTimeout(() => {
+                        // This is where you'll integrate with your Python backend
+                        fetch('/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ message: message })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            addMessage('bot', data.response);
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            addMessage('bot', 'Sorry, I encountered an error. Please try again.');
+                        });
+                    }, 500);
+                }
+            });
+
+            // Handle suggested question clicks
+            questionChips.forEach(chip => {
+                chip.addEventListener('click', function() {
+                    input.value = this.textContent;
+                    form.dispatchEvent(new Event('submit'));
+                });
+            });
+
+            function addMessage(sender, message) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}-message`;
+                messageDiv.innerHTML = `
+                    <div class="message-content">
+                        <p>${message}</p>
+                    </div>
+                `;
+                messagesContainer.appendChild(messageDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        });
+    </script>
+</body>
+</html>
