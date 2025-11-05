@@ -91,7 +91,7 @@ open up localhost:
 
 	
 ## 3. Create ECR repo to store/save docker image
-    - Save the URI: 641700582925.dkr.ecr.us-east-1.amazonaws.com/bwu-chatbot
+    - Save the URI: 641700582925.dkr.ecr.ap-south-1.amazonaws.com/bwu-chatbot
 
 	
 ## 4. Create EC2 machine (Ubuntu) 
@@ -127,5 +127,3 @@ open up localhost:
    - ECR_REPO
    - PINECONE_API_KEY
    - OPENAI_API_KEY
-
-   #dfff
