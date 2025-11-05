@@ -4,17 +4,28 @@ on:
   push:
     branches: [main]
 
+# Prevent overlapping deploys
+concurrency:
+  group: chatbot-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ${{ secrets.ECR_REPO }}
 
 jobs:
   Continuous-Integration:
+    name: Build & Push to ECR
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -22,28 +33,36 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
+      - name: Build, tag and push image
+        id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPO }}
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .  
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          # Build once
+          docker build -t $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG \
+                       -t $ECR_REGISTRY/$IMAGE_NAME:latest .
+
+          # Push both immutable and latest tags
+          docker push $ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$IMAGE_NAME:latest
+
+          # Export outputs for downstream job
+          echo "image_uri=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
   Continuous-Deployment:
+    name: Deploy on EC2 (self-hosted runner)
     needs: Continuous-Integration
     runs-on: self-hosted
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout (optional; not required for deploy)
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -51,8 +70,41 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Run Docker Image to serve users
+      - name: Pull and (re)start container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:latest
+          CONTAINER_NAME: chatbot
         run: |
-         docker run -d -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" -e AWS_DEFAULT_REGION="${{ secrets.AWS_DEFAULT_REGION }}" -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" -p 8080:8080 "${{ steps.login-ecr.outputs.registry }}"/"${{ secrets.ECR_REPO }}":latest
+          set -e
+
+          # Stop & remove any old container
+          docker rm -f "$CONTAINER_NAME" || true
+
+          # Pull the latest image from ECR
+          docker pull "$IMAGE"
+
+          # (Optional) prune old, dangling images to free space
+          docker image prune -f || true
+
+          # Run the container with all required environment vars and published port
+          docker run -d --name "$CONTAINER_NAME" \
+            --restart unless-stopped \
+            -p 8080:8080 \
+            -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            -e AWS_DEFAULT_REGION="${{ secrets.AWS_DEFAULT_REGION }}" \
+            -e PINECONE_API_KEY="${{ secrets.PINECONE_API_KEY }}" \
+            -e GOOGLE_API_KEY="${{ secrets.GOOGLE_API_KEY }}" \
+            -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            "$IMAGE"
+
+      # (Optional) quick health check - adjust path if you have a health endpoint
+      - name: Verify service is responding on localhost
+        run: |
+          sleep 3
+          if command -v curl >/dev/null 2>&1; then
+            curl -sS -I http://127.0.0.1:8080/ || (docker logs chatbot && exit 1)
+          fi
